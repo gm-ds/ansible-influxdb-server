@@ -3,7 +3,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -execute "show users"
+      influx -ssl -host "{{ influxdb_fqdn }}" -execute "show users"
   ignore_errors: true
   register: should_create_admin
   when: not ansible_check_mode
@@ -12,7 +12,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -execute "CREATE USER \"{{ item.username }}\" WITH PASSWORD '{{ item.password }}' WITH ALL PRIVILEGES"
+      influx -ssl -host "{{ influxdb_fqdn }}" -execute "CREATE USER \"{{ item.username }}\" WITH PASSWORD '{{ item.password }}' WITH ALL PRIVILEGES"
   loop: "{{ influxdb_users.admin }}"
   when: 'not ansible_check_mode and "unable to parse authentication credentials" not in should_create_admin.stdout'
 
@@ -20,7 +20,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "CREATE USER \"{{ item.username }}\" WITH PASSWORD '{{ item.password }}'"
   loop: "{{ influxdb_users.regular }}"
   when: not ansible_check_mode
@@ -29,7 +29,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "CREATE DATABASE \"{{ db_item.name if db_item is mapping else db_item }}\""
   loop: "{{ influxdb_databases }}"
   loop_control:
@@ -40,7 +40,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "CREATE RETENTION POLICY {{ policy.name }} ON {{ db_item.name }} DURATION {{ policy.duration }} REPLICATION {{ policy.replication }} {% if policy.default | default(false) %}DEFAULT{% endif %}"
   loop: "{{ influxdb_databases | selectattr('retention_policies', 'defined') | list }}"
   loop_control:
@@ -57,7 +57,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "CREATE RETENTION POLICY {{ influxdb_default_retention_policy.name }} ON {{ db_item.name if db_item is mapping else db_item }} DURATION {{ influxdb_default_retention_policy.duration }} REPLICATION {{ influxdb_default_retention_policy.replication }} {% if influxdb_default_retention_policy.default | default(false) %}DEFAULT{% endif %}"
   loop: "{{ influxdb_databases | rejectattr('retention_policies', 'defined') | list }}"
   loop_control:
@@ -70,7 +70,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "GRANT {{ perm.privileges }} ON {{ perm.database }} TO {{ user_name }}"
   vars:
     user_name: "{{ item.0 }}"
@@ -86,7 +86,7 @@
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -ssl -host "{{ hostname }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      influx -ssl -host "{{ influxdb_fqdn }}" -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
       -execute "CREATE DATABASE \"_internal\""
   when: 
     - not ansible_check_mode
