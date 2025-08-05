@@ -8,20 +8,20 @@
   register: should_create_admin
   when: not ansible_check_mode
 
-- name: Create initial admin user
+- name: Create initial admin users
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
-      influx -execute "CREATE USER "{{ item.username }}" WITH PASSWORD '"{{ item.password }}"' WITH ALL PRIVILEGES"
+      influx -execute "CREATE USER \"{{ item.username }}\" WITH PASSWORD '{{ item.password }}' WITH ALL PRIVILEGES"
   loop: "{{ influxdb_users.admin }}"
   when: 'not ansible_check_mode and "unable to parse authentication credentials" not in should_create_admin.stdout'
 
-- name: Create users
+- name: Create regular users
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
       influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
-      -execute "CREATE USER "{{ item.username }}" WITH PASSWORD '"{{ item.password }}"' "
+      -execute "CREATE USER \"{{ item.username }}\" WITH PASSWORD '{{ item.password }}'"
   loop: "{{ influxdb_users.regular }}"
   when: not ansible_check_mode
 
@@ -30,38 +30,64 @@
     container: "{{ influxdb_container.name }}"
     command: |
       influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
-      -execute "CREATE DATABASE "{{ item }}""
+      -execute "CREATE DATABASE \"{{ db_item.name if db_item is mapping else db_item }}\""
   loop: "{{ influxdb_databases }}"
+  loop_control:
+    loop_var: db_item
   when: not ansible_check_mode
 
-- name: create 2 week retention policy
+- name: Create custom retention policies for databases
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
       influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
-      -execute "CREATE RETENTION POLICY oneweek ON {{ item }} DURATION {{ influxdb_retention_policy.duration }} REPLICATION {{ influxdb_retention_policy.replication }} {{ influxdb_retention_policy.default }}"
-  loop: "{{ influxdb_retention_policy.databases }}"
+      -execute "CREATE RETENTION POLICY {{ policy.name }} ON {{ db_item.name }} DURATION {{ policy.duration }} REPLICATION {{ policy.replication }} {% if policy.default | default(false) %}DEFAULT{% endif %}"
+  loop: "{{ influxdb_databases | selectattr('retention_policies', 'defined') | list }}"
+  loop_control:
+    loop_var: db_item
+  with_subelements:
+    - "{{ influxdb_databases | selectattr('retention_policies', 'defined') | list }}"
+    - retention_policies
+  vars:
+    policy: "{{ item.1 }}"
+    db_item: "{{ item.0 }}"
   when: not ansible_check_mode
 
-- name: Grant permissions to user galaxy
+- name: Create default retention policy for databases without custom policies
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
       influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
-      -execute "GRANT ALL ON {{ item }} TO {{ influxdb_users.regular[1].username }}"
-  loop: "{{ influxdb_databases }}"
-  when: not ansible_check_mode
+      -execute "CREATE RETENTION POLICY {{ influxdb_default_retention_policy.name }} ON {{ db_item.name if db_item is mapping else db_item }} DURATION {{ influxdb_default_retention_policy.duration }} REPLICATION {{ influxdb_default_retention_policy.replication }} {% if influxdb_default_retention_policy.default | default(false) %}DEFAULT{% endif %}"
+  loop: "{{ influxdb_databases | rejectattr('retention_policies', 'defined') | list }}"
+  loop_control:
+    loop_var: db_item
+  when: 
+    - not ansible_check_mode
+    - influxdb_default_retention_policy is defined
 
-- name: Grant permissions to user grafana
+- name: Grant permissions to users
   community.docker.docker_container_exec:
     container: "{{ influxdb_container.name }}"
     command: |
       influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
-      -execute "GRANT ALL ON {{ item }} TO {{ influxdb_users.regular[0].username }}"
-  loop:
-    - '_internal'
-    - galaxy
-    - galaxy_stats
-    - grt
-    - notifications
-  when: not ansible_check_mode
+      -execute "GRANT {{ perm.privileges }} ON {{ perm.database }} TO {{ user_name }}"
+  vars:
+    user_name: "{{ item.0 }}"
+    perm: "{{ item.1 }}"
+  with_subelements:
+    - "{{ influxdb_user_permissions | dict2items }}"
+    - value.databases
+  when: 
+    - not ansible_check_mode
+    - influxdb_user_permissions is defined
+
+- name: Create internal databases if requested
+  community.docker.docker_container_exec:
+    container: "{{ influxdb_container.name }}"
+    command: |
+      influx -username "{{ influxdb_users.admin[0].username }}" -password "{{ influxdb_users.admin[0].password }}"
+      -execute "CREATE DATABASE \"_internal\""
+  when: 
+    - not ansible_check_mode
+    - influxdb_create_internal_databases | default(false)

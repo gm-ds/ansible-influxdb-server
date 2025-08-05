@@ -1,29 +1,78 @@
 ---
-hostname: your-instance-fqdn
+hostname: your-instance-fqdn-if-matches-hostname
+influxdb_fqdn: "{{ influxdb_fqdn | default(hostname) }}"
 influxdb_https_enabled: "false"
 
-# influxdb
+# influxdb users with flexible structure
 influxdb_users:
   admin:
-    - {username: 'admin', password: 'admin'}
+    - username: 'admin'
+      password: 'admin'
+      # Admin users automatically get ALL PRIVILEGES
   regular:
-    - {username: 'grafana', password: '_grafana'}
-    - {username: 'galaxy', password: '_galaxy'}
+    - username: 'grafana'
+      password: '_grafana'
+    - username: 'galaxy'
+      password: '_galaxy'
+      # Permissions will be granted based on influxdb_user_permissions
 
+# Database definitions with optional retention policies
 influxdb_databases:
-  - galaxy
-  - grt
-  - galaxy_stats
-  - notifications
+  - name: galaxy
+    retention_policies:
+      - name: twoweeks
+        duration: 14d
+        replication: 1
+        default: true
+  - name: grt
+    # No custom retention policy - will use default
+  - name: galaxy_stats
+    retention_policies:
+      - name: twoweeks
+        duration: 14d
+        replication: 1
+        default: true
+  - name: notifications
+    retention_policies:
+      - name: twoweeks
+        duration: 14d
+        replication: 1
+        default: true
 
-influxdb_retention_policy:
-  policy_name: twoweeks
-  duration: 14d
+# Global retention policy settings (used when databases don't specify their own)
+influxdb_default_retention_policy:
+  name: default_policy
+  duration: 7d
   replication: 1
-  default: "DEFAULT"
-  databases:
-    - galaxy
-    - notifications
+  default: true
+
+# User permissions mapping
+influxdb_user_permissions:
+  grafana:
+    databases:
+      - database: '_internal'
+        privileges: 'ALL'
+      - database: 'galaxy'
+        privileges: 'ALL'
+      - database: 'galaxy_stats'
+        privileges: 'ALL'
+      - database: 'grt'
+        privileges: 'ALL'
+      - database: 'notifications'
+        privileges: 'ALL'
+  galaxy:
+    databases:
+      - database: 'galaxy'
+        privileges: 'ALL'
+      - database: 'grt'
+        privileges: 'ALL'
+      - database: 'galaxy_stats'
+        privileges: 'ALL'
+      - database: 'notifications'
+        privileges: 'ALL'
+
+# Optional: Create internal InfluxDB databases
+influxdb_create_internal_databases: false
 
 influxdb_data_dir: /data/monitoring/influxdb_data
 influxdb_setup: "standalone"
@@ -32,7 +81,7 @@ influxdb_setup: "standalone"
 influxdb_container:
   name: influxdb_server
   image: influxdb:1.8
-  hostname: "{{ inventory_hostname }}"
+  hostname: "{{ hostname }}"
 
 influxdb_container_pause: 20
 
@@ -42,18 +91,14 @@ influxdb_container_standalone_setup_details:
   ports:
     - 8086:8086
   env:
-    {
-      'INFLUXDB_HTTP_AUTH_ENABLED': "true",
-      'INFLUXDB_HTTP_ENABLED': "true",
-      'INFLUXDB_HTTP_HTTPS_ENABLED': "{{ influxdb_https_enabled }}",
-      'INFLUXDB_HTTP_HTTPS_CERTIFICATE': "/etc/ssl/certs/fullchain.pem",
-      'INFLUXDB_HTTP_HTTPS_PRIVATE_KEY': "/etc/ssl/user/privkey-influxdb.pem",
-      'INFLUXDB_HTTP_LOG_ENABLED': "false",
-      'INFLUXDB_DATA_INDEX_VERSION': "tsi1",
-      'INFLUXDB_DATA_CACHE_MAX_MEMORY_SYZE': '1048576000',
-      'INFLUXDB_DATA_CACHE_SNAPSHOT_WRITE_COLD_DURATION': "10s",
-      'INFLUXDB_DATA_MAX_VALUES_PER_TAG': '3000000',
-      'INFLUXDB_LOGGING_LEVEL': "error"
-    }
-# see:
-# https://docs.influxdata.com/influxdb/v1.8/administration/config/
+    INFLUXDB_HTTP_AUTH_ENABLED: "true"
+    INFLUXDB_HTTP_ENABLED: "true"
+    INFLUXDB_HTTP_HTTPS_ENABLED: "{{ influxdb_https_enabled }}"
+    INFLUXDB_HTTP_HTTPS_CERTIFICATE: "/etc/ssl/certs/fullchain.pem"
+    INFLUXDB_HTTP_HTTPS_PRIVATE_KEY: "/etc/ssl/user/privkey-influxdb.pem"
+    INFLUXDB_HTTP_LOG_ENABLED: "false"
+    INFLUXDB_DATA_INDEX_VERSION: "tsi1"
+    INFLUXDB_DATA_CACHE_MAX_MEMORY_SYZE: '1048576000'
+    INFLUXDB_DATA_CACHE_SNAPSHOT_WRITE_COLD_DURATION: "10s"
+    INFLUXDB_DATA_MAX_VALUES_PER_TAG: '3000000'
+    INFLUXDB_LOGGING_LEVEL: "error"
